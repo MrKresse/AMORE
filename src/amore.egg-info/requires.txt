@@ -1,0 +1,5 @@
+numpy
+torch
+matplotlib
+MDAnalysis
+h5py
