@@ -3,6 +3,7 @@ from .chi import chi_coords, dchi_dx, chi_sensitivity, pick_representative_xs
 from .io import save_gradient, save_pdb, save_pdb_as_frames, save_chi_histogram
 from . import sims
 from . import mep
+from . import isokann
 
 __all__ = [
     # features
@@ -22,4 +23,6 @@ __all__ = [
     "sims",
     # reaction paths
     "mep",
+    # multi-D ISOKANN
+    "isokann",
 ]

@@ -1,0 +1,73 @@
+# ── Python ───────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+.installed.cfg
+
+# ── Environments ─────────────────────────────────────────────────────────────
+.env
+.venv
+env/
+venv/
+*.conda
+
+# ── Large binary data files ───────────────────────────────────────────────────
+# Simulation/training outputs — generate with the provided scripts
+*.npz
+*.npy
+*.pt
+*.h5
+*.h5ad
+*.hdf5
+*.pkl
+*.pickle
+
+# ── Generated output directories ──────────────────────────────────────────────
+examples/benchmark/data/
+examples/benchmark/results/
+examples/benchmark/figures/
+examples/benchmark_v2/runs/
+examples/GRN/data/larry_processed.h5ad
+examples/GRN/data/larry_x0.npy
+examples/GRN/data/larry_x1.npy
+examples/GRN/data/larry_pca.npy
+examples/GRN/data/larry_src.npy
+examples/GRN/data/larry_dst.npy
+examples/GRN/output/
+examples/MD/triple_well_out/
+examples/MD/output/
+examples/benchmark_v2/panel0/adp_*.npz
+examples/benchmark_v2/panel0/adp_*.npy
+examples/benchmark_v2/panel0/tw_*.npz
+
+# ── Log files ─────────────────────────────────────────────────────────────────
+*.log
+*.txt
+!requirements*.txt
+# but keep markdown
+!*.md
+
+# ── Generated PDFs (regenerate from scripts + markdown) ───────────────────────
+*.pdf
+
+# ── IDE / OS ──────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.DS_Store
+Thumbs.db
+.claude/
+
+# ── Jupyter ───────────────────────────────────────────────────────────────────
+.ipynb_checkpoints/
+*.ipynb
+
+# ── Scratch / local output dirs ───────────────────────────────────────────────
+output/
+scratch/

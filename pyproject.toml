@@ -4,16 +4,25 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "amore"
-version = "0.1.0"
-description = "Analysis tools for ISOKANN: features, chi sensitivity, and structure I/O"
+version = "0.2.0"
+description = "AMORE: multi-dimensional ISOKANN for Koopman eigenfunction learning"
+readme = "README.md"
 requires-python = ">=3.9"
+license = {text = "MIT"}
 dependencies = [
     "numpy",
     "torch",
+    "scipy",
     "matplotlib",
+    "scikit-learn",
     "MDAnalysis",
     "h5py",
 ]
+
+[project.optional-dependencies]
+openmm = ["openmm"]
+grn = ["scanpy", "anndata", "deeptime"]
+dev = ["pytest", "ruff"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -23,7 +23,8 @@ import MDAnalysis as mda
 # ---------------------------------------------------------------------------
 # MoKiTo: local import only (not a package dependency)
 # ---------------------------------------------------------------------------
-MOKITO_ROOT = "/home/numerik/jkresse/code/MoKiTo"
+# Set MOKITO_ROOT to your local MoKiTo checkout, or export MOKITO_ROOT=/path/to/MoKiTo
+MOKITO_ROOT = os.environ.get("MOKITO_ROOT", "")
 sys.path.insert(0, MOKITO_ROOT)
 
 from src.useful_functions import read_dirs_paths
@@ -41,8 +42,8 @@ SEED = 0
 np.random.seed(SEED)
 pt.manual_seed(SEED)
 
-MOKITO_EXAMPLE = "/home/numerik/jkresse/code/MoKiTo/examples/ptb1b"
-OUT_DIR        = "/scratch/htc/jkresse/out_isokann/"
+MOKITO_EXAMPLE = os.environ.get("MOKITO_EXAMPLE", "")
+OUT_DIR        = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output")
 DCD_FILE       = "/scratch/htc/fsafarov/2cm2_simulation/md2/output/trajectories/openmm_files/trajectory_water_combined6.dcd"
 PDB_FILE       = "/scratch/htc/fsafarov/2cm2_simulation/md2/output/trajectories/openmm_files/frame_3203.pdb"
 HYPERPARAMS    = os.path.join(MOKITO_EXAMPLE, "hyperparameter_files/hyperparams_7.pkl")

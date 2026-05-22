@@ -18,7 +18,8 @@ from openmm import app, unit
 # ---------------------------------------------------------------------------
 # MoKiTo
 # ---------------------------------------------------------------------------
-MOKITO_ROOT = "/home/numerik/jkresse/code/MoKiTo"
+# Set MOKITO_ROOT to your local MoKiTo checkout, or export MOKITO_ROOT=/path/to/MoKiTo
+MOKITO_ROOT = os.environ.get("MOKITO_ROOT", "")
 sys.path.insert(0, MOKITO_ROOT)
 from src.isokann.modules3 import NeuralNetwork, power_method, scale_and_shift
 
@@ -47,7 +48,7 @@ np.random.seed(SEED)
 pt.manual_seed(SEED)
 
 OUT_DIR     = "alaninedipeptide_metad_out"
-SCRATCH_DIR = "/scratch/htc/jkresse/AMORE/"
+SCRATCH_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output")
 os.makedirs(OUT_DIR,     exist_ok=True)
 os.makedirs(SCRATCH_DIR, exist_ok=True)
 

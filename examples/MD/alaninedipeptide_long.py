@@ -37,7 +37,8 @@ import matplotlib.pyplot as plt
 # ---------------------------------------------------------------------------
 # MoKiTo power method
 # ---------------------------------------------------------------------------
-MOKITO_ROOT = "/home/numerik/jkresse/code/MoKiTo"
+# Set MOKITO_ROOT to your local MoKiTo checkout, or export MOKITO_ROOT=/path/to/MoKiTo
+MOKITO_ROOT = os.environ.get("MOKITO_ROOT", "")
 sys.path.insert(0, MOKITO_ROOT)
 from src.isokann.modules3 import NeuralNetwork, power_method, scale_and_shift
 
@@ -63,8 +64,8 @@ pt.manual_seed(SEED)
 # ---------------------------------------------------------------------------
 # Config  (mirrors alaninedipeptide_long.jl)
 # ---------------------------------------------------------------------------
-DATA_DIR    = "/scratch/htc/jkresse/ad/"
-SCRATCH_DIR = "/scratch/htc/jkresse/AMORE/long/"
+DATA_DIR    = os.environ.get("DATA_DIR", ".")  # set to directory with JLD2 input files
+SCRATCH_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output")
 OUT_DIR     = "alaninedipeptide_long_out"
 os.makedirs(SCRATCH_DIR, exist_ok=True)
 os.makedirs(OUT_DIR,     exist_ok=True)
