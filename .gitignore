@@ -34,6 +34,13 @@ examples/benchmark/data/
 examples/benchmark/results/
 examples/benchmark/figures/
 examples/benchmark_v2/runs/
+# Large committed outputs untracked 2026-06-16 (regenerate from the scripts; ~209 MB)
+*.bin
+examples/benchmark_v2/figures/
+examples/benchmark_v3/_jldata/
+examples/benchmark_v3/figures/
+examples/benchmark_v3/figures_isa_ablation/
+examples/benchmark_v3/figures_julia/
 examples/GRN/data/larry_processed.h5ad
 examples/GRN/data/larry_x0.npy
 examples/GRN/data/larry_x1.npy
