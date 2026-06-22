@@ -1,0 +1,21 @@
+# ── cr2_benchmark: what NOT to push ──────────────────────────────────────────
+# These keep the benchmark CODE + NOTEBOOKS (the deliverables) in git while excluding
+# everything large, external, or regenerable.
+
+# CellRank2 reproducibility clone — a separate ~11 GB git repo (its own .git) that also
+# holds the multi-GB downloaded datasets. Never push it; clone it separately per the
+# READMEs / POSTMORTEMs.
+cellrank2_reproducibility/
+
+# Per-benchmark generated outputs — model weights (*.pt), chi/T/features (*.npy/*.npz),
+# and the CR2 artifacts (cr2_*.json/.csv, meta.json, *_resolved.json). All regenerate from
+# 01_cr2_reproduce.py + 03/03b/04 train scripts. (The *.pt/*.npy/*.npz are already ignored
+# repo-wide; this also catches the JSON/CSV that are not.)
+artifacts/
+
+# Generated figures — every panel is also embedded in the executed notebooks, so the
+# standalone PNGs are redundant. Regenerate by running the notebooks.
+figures/
+
+# Any local data copies that might land directly under a benchmark dir.
+data/

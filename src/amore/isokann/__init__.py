@@ -20,12 +20,14 @@ Quick start
 >>> evals, ts = implied_timescales(chi(x0), chi(x1), lagtime=0.01)
 """
 
-from .network import ChiNetMulti, ChiNetMultiRaw
+from .network import ChiNetMulti, ChiNetMultiRaw, ChiNetMultiLinear, ChiNetHVG
 from .power   import power_method_multi, implied_timescales, koopman_matrix, whiten
 
 __all__ = [
     "ChiNetMulti",
     "ChiNetMultiRaw",
+    "ChiNetMultiLinear",
+    "ChiNetHVG",
     "power_method_multi",
     "implied_timescales",
     "koopman_matrix",

@@ -66,7 +66,9 @@ Thumbs.db
 
 # ── Jupyter ───────────────────────────────────────────────────────────────────
 .ipynb_checkpoints/
-*.ipynb
+# NOTE: notebooks ARE tracked — they are the deliverables of the benchmarks. The large
+# inputs they reference (weights/data/artifacts) are ignored via the rules above and the
+# per-example .gitignore files.
 
 # ── Scratch / local output dirs ───────────────────────────────────────────────
 output/

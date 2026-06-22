@@ -81,3 +81,60 @@ class ChiNetMultiRaw(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.net(x)
+
+
+class ChiNetMultiLinear(nn.Module):
+    """
+    Unconstrained variant: k linear outputs (no output activation).
+
+    Required for isotarget-based training (ISA, GramSchmidt, PseudoInv, Cross)
+    where the regression targets are in natural scale (~±sqrt(n)), not [0,1].
+    Using sigmoid or softmax output would saturate and block gradients.
+    Uses Tanh hidden activations (not ReLU — ReLU causes collapse on high-dim inputs).
+    """
+
+    def __init__(self, in_dim: int, k: int,
+                 hidden: list[int] = (128, 64, 32)) -> None:
+        super().__init__()
+        dims = [in_dim] + list(hidden) + [k]
+        layers: list[nn.Module] = []
+        for i in range(len(dims) - 1):
+            layers.append(nn.Linear(dims[i], dims[i + 1]))
+            if i < len(dims) - 2:
+                layers.append(nn.Tanh())
+        self.net = nn.Sequential(*layers)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.net(x)
+
+
+class ChiNetHVG(nn.Module):
+    """
+    Linear-output chi network with BatchNorm at the INPUT — for training directly
+    on high-dimensional gene features (e.g. ~1500-2000 HVG expression columns)
+    rather than a PCA reduction.
+
+    Why BN at input: high-dimensional, heterogeneously-scaled gene features train
+    unstably without input normalisation; BN stabilises the first layer (project
+    memory: HVG k=16 needed BN-input + Tanh, not ReLU). Tanh hidden, linear output
+    (isotarget targets exceed [0,1]).
+
+    The advantage over the PCA-input ChiNetMultiLinear is that d chi / d gene becomes
+    a *direct* per-gene gradient (no fixed PCA-loadings re-mix), which is what makes
+    gene-level attribution — especially Integrated Gradients — recover lineage drivers.
+    """
+
+    def __init__(self, in_dim: int, k: int,
+                 hidden: list[int] = (256, 128, 64)) -> None:
+        super().__init__()
+        self.bn = nn.BatchNorm1d(in_dim)
+        dims = [in_dim] + list(hidden) + [k]
+        layers: list[nn.Module] = []
+        for i in range(len(dims) - 1):
+            layers.append(nn.Linear(dims[i], dims[i + 1]))
+            if i < len(dims) - 2:
+                layers.append(nn.Tanh())
+        self.net = nn.Sequential(*layers)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.net(self.bn(x))
