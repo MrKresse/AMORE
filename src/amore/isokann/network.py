@@ -17,6 +17,13 @@ class ChiNetMulti(nn.Module):
     """
     MLP mapping state-space coordinates to k simplex-valued chi functions.
 
+    RECOMMENDED default head for membership ISOKANN (ISA / Schur-ISA / GPCCA / VAMPnets).
+    The softmax output enforces the probability simplex architecturally, which prevents the
+    amplitude collapse and mode-selection a linear head suffers on high-dimensional inputs:
+    softmax-ISA recovers the dominant slow modes from a random init with NO warm-up (the
+    benchmark gold standard, examples/isokann_benchmark). Use ChiNetMultiLinear instead only
+    for the signed eigenfunction/basis targets (GramSchmidt, PseudoInv, Cross, SVD).
+
     Parameters
     ----------
     in_dim : int

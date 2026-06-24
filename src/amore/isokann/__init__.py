@@ -12,6 +12,14 @@ faces give the reaction pathways between them.  The simplex can be related to
 UMAP / diffusion maps but is derived from actual Koopman dynamics rather than a
 k-NN graph.
 
+Recommended (gold standard)
+---------------------------
+For k metastable memberships, train a **softmax-head `ChiNetMulti` with the ISA target and
+no warm-up** (`amore.isotarget.isa_target`). The softmax simplex constraint makes this robust
+from a random init even on high-dimensional inputs, where a linear head collapses /
+mode-selects. Use the linear `ChiNetMultiLinear` only for signed eigenfunction/basis targets
+(GramSchmidt, PseudoInv, Cross, SVD). See examples/isokann_benchmark for the comparison.
+
 Quick start
 -----------
 >>> from amore.isokann import ChiNetMulti, power_method_multi, implied_timescales

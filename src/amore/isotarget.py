@@ -178,6 +178,16 @@ def isa_target(chi_x0: np.ndarray, kchi: np.ndarray,
     """
     V2 — Inner Simplex Algorithm.  Julia `TransformISA` / `myisa`.
 
+    RECOMMENDED USAGE (gold standard, see examples/isokann_benchmark): pair this target
+    with a **softmax output head** (`amore.isokann.ChiNetMulti`) and **no warm-up**. The
+    softmax architecturally enforces the membership simplex (chi>=0, sum=1), which removes
+    the amplitude-collapse / mode-selection that a linear head suffers on high-dimensional
+    inputs — softmax-ISA recovers all dominant slow modes from a random init (e.g. both the
+    phi-flip and psi processes of vacuum alanine dipeptide), whereas linear-ISA needed a
+    converged 1-D ShiftScale warm-up and still mode-selected. Use the linear head
+    (`ChiNetMultiLinear`) only for the signed eigenfunction/basis targets (gramschmidt,
+    pseudoinv, cross, svd).
+
     Julia:
         target = inv(K[vertices])' * K         (K = kchi', rows = anchors)
         optionally row-permuted to match chi for stability.
