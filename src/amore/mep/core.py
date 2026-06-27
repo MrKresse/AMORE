@@ -215,7 +215,30 @@ def reaction_path_minimum(nu, featurizer, x0, steps=100, stepsize=0.01,
     -------
     path : np.ndarray of shape (n_path, dim)
         Full path [A-end, ..., x0, ..., B-end].
+
+    Notes
+    -----
+    The initial state x0 is first projected onto its own chi level set with the SAME
+    operator used for every other image — energy minimisation when a potential is given,
+    otherwise Newton retraction — so the central image is treated identically to the
+    forward/backward images instead of being patched in raw.
     """
+    x0 = np.asarray(x0, dtype=np.float64).copy()
+    chi0 = _chi_val(nu, featurizer, x0)
+
+    # Treat the initial state like every other image: project it onto its level set.
+    if potential_fn is not None:
+        x0 = energy_min_on_levelset(
+            nu, featurizer, potential_fn, x0, chi0, grad_fn=grad_fn,
+            tol=integrator_kwargs.get("energy_tol", 1e-5),
+            max_iter=integrator_kwargs.get("energy_max_iter", 100),
+        )
+    else:
+        x0 = levelset_retract(
+            nu, featurizer, x0, chi0,
+            max_steps=integrator_kwargs.get("retract_steps", 20),
+            tol=integrator_kwargs.get("retract_tol", 1e-8),
+        )
     chi0 = _chi_val(nu, featurizer, x0)
     steps_back = max(int(steps * chi0), 1)
     steps_fwd  = max(int(steps * (1 - chi0)), 1)

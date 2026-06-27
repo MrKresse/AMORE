@@ -18,6 +18,16 @@ from .constrained import (
     sample_single_levelset_projected,
     build_chi_mep_projected,
 )
+from .simplex import (
+    FaceCV,
+    EdgeCV,
+    ActivityCV,
+    separatrix_frames,
+    reaction_path_face,
+    reaction_path_edge,
+    mfep_face,
+    mfep_edge,
+)
 
 __all__ = [
     "reaction_path_minimum",
@@ -36,4 +46,12 @@ __all__ = [
     "sample_levelset_projected",
     "sample_single_levelset_projected",
     "build_chi_mep_projected",
+    "FaceCV",
+    "EdgeCV",
+    "ActivityCV",
+    "separatrix_frames",
+    "reaction_path_face",
+    "reaction_path_edge",
+    "mfep_face",
+    "mfep_edge",
 ]
