@@ -132,22 +132,45 @@ def _sorted_real_schur(M):
     rest_sorted = sorted(rest, key=lambda b: -mod_key[b])
     order = [stat_block] + rest_sorted
 
-    # Rebuild U, T by permuting whole blocks. Because Schur form is
-    # quasi-triangular, a clean block permutation generally requires Schur
-    # reordering; for the small k here we reconstruct via an eigh/eig-free
-    # route: project onto the ordered invariant subspaces using U columns.
-    cols = []
+    # `eigs` in the desired order: a plain re-index of `diag`, which already
+    # came from a genuinely valid (scipy-returned) real Schur form -- no matrix
+    # reordering needed for this part, and therefore nothing that can go wrong.
+    #
+    # *** BUG FIX (naive permutation breaks triangularity) ***
+    # An earlier version of this function built T_ord/U_ord via a naive
+    # permutation-matrix conjugation (`T_ord = P.T @ T @ P`) and then re-derived
+    # `eigs` from `rsf2csf(T_ord, ...)`. That is only valid when P happens to
+    # preserve upper-triangularity; for a non-trivial reorder (e.g. moving a
+    # trailing stationary mode to the front) it generally does not -- here it
+    # silently produced a LOWER-triangular T_ord, whose nonzero strict-lower
+    # entries `block_structure` then misread as a spurious 2x2 (complex) block,
+    # scrambling `eigs` and defeating the stationary-mode pin (the very case
+    # this function exists to get right). Confirmed by direct reproduction:
+    # feeding a 3x3 Lambda_S with three well-separated REAL eigenvalues where
+    # the stationary mode sits last in the raw Schur diagonal produced
+    # eigs=[0.46, 1.0, 0.86] instead of the intended [1.0, 0.86, 0.46].
+    eigs = np.concatenate([diag[s:s + sz] for (s, sz) in (blocks[bi] for bi in order)])
+    blocks_ord = []
+    pos = 0
     for bi in order:
-        s, sz = blocks[bi]
-        cols.extend(range(s, s + sz))
-    P = np.eye(k)[:, cols]            # column permutation
-    U_ord = U @ P
-    T_ord = P.T @ T @ P
+        _, sz = blocks[bi]
+        blocks_ord.append((pos, sz))
+        pos += sz
 
-    # eigenvalues in ordered sense
-    Tc2, _ = rsf2csf(T_ord, U_ord)
-    eigs = np.diag(Tc2).copy()
-    blocks_ord = block_structure(T_ord)
+    # U_ord/T_ord: callers (TransformSchurISA/TransformGPCCA) only rely on
+    # column 0 representing the pinned stationary/constant direction (they
+    # immediately overwrite it, `X[:, 0] = 1.0`) and on the rest spanning the
+    # same subspace -- not on any particular order among the rest. Get column 0
+    # right via scipy's own LAPACK-backed reordering (`sort=`), which performs
+    # a genuine Schur reorder (Givens/Householder-based, via dtrsen) and so is
+    # guaranteed to preserve the quasi-triangular structure, unlike the naive
+    # permutation above.
+    stat_val = diag[blocks[stat_block][0]]
+
+    def _is_stationary(x):
+        return bool(abs(x - stat_val) < 1e-8 * (1.0 + abs(stat_val)))
+
+    T_ord, U_ord = schur(M, output="real", sort=_is_stationary)[:2]
     return U_ord, T_ord, eigs, blocks_ord
 
 

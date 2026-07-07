@@ -117,8 +117,15 @@ def get_cfg(tag): return CFG.get(tag, Cfg)
 def _device(use_gpu):
     return torch.device("cuda" if (use_gpu and torch.cuda.is_available()) else "cpu")
 
-def _make_net(variant, IN, cfg, head=None):
-    k = n_out(variant); head = head or default_head(variant)
+def _make_net(variant, IN, cfg, head=None, k=None):
+    # k=None: default output dimension for this variant (N_STATES for membership,
+    # N_STATES-1 for basis). Pass k explicitly to train at a different dimension --
+    # e.g. deliberately OVERPARAMETRIZED (k > true metastable-state count), to read
+    # the number of states off the recovered Lambda_S spectral gap (amore.inverse_pcca)
+    # instead of assuming it. src/amore itself (ChiNetMulti, isa_target) never hardcoded
+    # k=N_STATES; only this benchmark harness did.
+    k = k if k is not None else n_out(variant)
+    head = head or default_head(variant)
     Net = ChiNetMulti if head == "softmax" else ChiNetMultiLinear
     return Net(IN, k, hidden=cfg.HIDDEN), k, head
 
@@ -217,14 +224,14 @@ def load_warmup_artifacts(tag, seed):
 
 
 # ── isotarget / Schur training (membership softmax OR basis linear) ──────────
-def _run_isotarget(system, variant, seed, cfg, device, head=None, warmup=False) -> dict:
+def _run_isotarget(system, variant, seed, cfg, device, head=None, warmup=False, k=None) -> dict:
     torch.manual_seed(seed * 12345 + 7); np.random.seed(seed * 12345 + 7)
     F0 = system["feat"]; BURSTS = system["bursts"]; N, Kb, IN = BURSTS.shape
     f_all = torch.tensor(F0, device=device); f0 = torch.tensor(F0, device=device)
     fts = [torch.tensor(BURSTS[:, j, :], device=device) for j in range(Kb)]
     m = np.random.rand(N) < 0.8; tr, te = np.where(m)[0], np.where(~m)[0]
 
-    net, k, head = _make_net(variant, IN, cfg, head)
+    net, k, head = _make_net(variant, IN, cfg, head, k)
     net = net.to(device)
     if warmup and head == "linear" and variant in ({"isa"} | set(NONREV_VARIANTS)):
         warm = get_warmup(system, seed, cfg, device)
@@ -293,14 +300,15 @@ def _run_isotarget(system, variant, seed, cfg, device, head=None, warmup=False) 
                 loss_train=np.array(loss_tr, np.float32), loss_val=np.array(loss_val, np.float32),
                 opt_loss=np.array(opt_loss, np.float32), sd_history=np.array(sdh, np.float32),
                 diag=np.array(diagh, np.float64) if diagh else np.zeros((0, 6)),
-                elapsed=time.perf_counter() - t0, n_iter=len(loss_val))
+                elapsed=time.perf_counter() - t0, n_iter=len(loss_val),
+                net=net)  # in-memory only; train_chi's disk-cache loop ignores this key
 
 
 # ── subspace power iteration (basis, linear, self-deflating) ─────────────────
-def _run_power(system, seed, cfg, device, head=None, warmup=False) -> dict:
+def _run_power(system, seed, cfg, device, head=None, warmup=False, k=None) -> dict:
     torch.manual_seed(seed * 12345 + 7); np.random.seed(seed * 12345 + 7)
     F0 = system["feat"]; BURSTS = system["bursts"]; N, Kb, IN = BURSTS.shape
-    net, k, _ = _make_net("svd_power", IN, cfg, head); net = net.to(device)
+    net, k, _ = _make_net("svd_power", IN, cfg, head, k); net = net.to(device)
     x0 = torch.tensor(np.tile(F0, (Kb, 1)), device=device)
     x1 = torch.tensor(np.concatenate([BURSTS[:, j, :] for j in range(Kb)], 0), device=device)
     t0 = time.perf_counter()
@@ -311,17 +319,18 @@ def _run_power(system, seed, cfg, device, head=None, warmup=False) -> dict:
     losses = np.array(res["losses"], np.float32)
     return dict(chi_best=chi, loss_train=losses, loss_val=np.full_like(losses, np.nan),
                 opt_loss=losses, sd_history=(np.array(res["spans"]) / (2 * np.sqrt(3))).astype(np.float32),
-                diag=np.zeros((0, 6)), elapsed=time.perf_counter() - t0, n_iter=len(losses))
+                diag=np.zeros((0, 6)), elapsed=time.perf_counter() - t0, n_iter=len(losses),
+                net=net)  # in-memory only; train_chi's disk-cache loop ignores this key
 
 
 # ── VAMP-2 (VAMPnets: softmax head, k=3, no warm-up) ─────────────────────────
-def _run_vamp(system, seed, cfg, device, head=None, warmup=False) -> dict:
+def _run_vamp(system, seed, cfg, device, head=None, warmup=False, k=None) -> dict:
     torch.manual_seed(seed * 12345 + 7); np.random.seed(seed * 12345 + 7)
     F0 = system["feat"]; BURSTS = system["bursts"]; N, Kb, IN = BURSTS.shape
     f_all = torch.tensor(F0, device=device); f0 = torch.tensor(F0, device=device)
     bursts_t = torch.tensor(BURSTS, device=device)
     m = np.random.rand(N) < 0.8; tr, te = np.where(m)[0], np.where(~m)[0]
-    net, k, head = _make_net("vamp", IN, cfg, head); net = net.to(device)
+    net, k, head = _make_net("vamp", IN, cfg, head, k); net = net.to(device)
     opt = torch.optim.Adam(net.parameters(), lr=cfg.LR)
     linear = head == "linear"
     def feat(c):                                   # linear head needs a guard against collapse
@@ -352,19 +361,28 @@ def _run_vamp(system, seed, cfg, device, head=None, warmup=False) -> dict:
 
 
 # ── dispatcher with caching ──────────────────────────────────────────────────
-def _run_dir(tag, variant, seed, head, warmup):
+def _run_dir(tag, variant, seed, head, warmup, k=None):
     sub = variant
     if head is not None and head != default_head(variant):
         sub = f"{variant}__{head}"
+    if k is not None and k != n_out(variant):
+        # a non-default k gets its own cache slot -- never collides with the
+        # standard N_STATES runs, so overparametrization experiments can't
+        # clobber (or be silently served stale results by) the real benchmark.
+        sub = f"{sub}__k{k}"
     if warmup:
         sub = sub + "_warm"
     d = os.path.join(paths.RUNS, tag, sub, f"seed_{seed}"); os.makedirs(d, exist_ok=True)
     return d
 
 def train_chi(system, variant, seed, cfg=None, use_gpu=False, force=False, verbose=True,
-              head=None, warmup=False) -> dict:
+              head=None, warmup=False, k=None) -> dict:
+    """k=None trains at this variant's default dimension (N_STATES for membership
+    variants, N_STATES-1 for basis variants) -- identical to always before. Pass k
+    explicitly to train at a different (e.g. deliberately overparametrized) output
+    dimension; see `_make_net` and `amore.inverse_pcca` for why you'd want that."""
     tag = system["tag"]; cfg = cfg or get_cfg(tag)
-    out = _run_dir(tag, variant, seed, head, warmup)
+    out = _run_dir(tag, variant, seed, head, warmup, k)
     cpath = os.path.join(out, "chi_best.npy")
     if os.path.exists(cpath) and not force:
         res = {kk: np.load(os.path.join(out, f"{kk}.npy"))
@@ -374,14 +392,14 @@ def train_chi(system, variant, seed, cfg=None, use_gpu=False, force=False, verbo
         res["cached"] = True; return res
     device = _device(use_gpu)
     if variant == "svd_power":
-        res = _run_power(system, seed, cfg, device, head=head, warmup=warmup)
+        res = _run_power(system, seed, cfg, device, head=head, warmup=warmup, k=k)
     elif variant == "vamp":
-        res = _run_vamp(system, seed, cfg, device, head=head, warmup=warmup)
+        res = _run_vamp(system, seed, cfg, device, head=head, warmup=warmup, k=k)
     else:
-        res = _run_isotarget(system, variant, seed, cfg, device, head=head, warmup=warmup)
+        res = _run_isotarget(system, variant, seed, cfg, device, head=head, warmup=warmup, k=k)
     for kk in ("chi_best", "loss_train", "loss_val", "opt_loss", "sd_history", "diag"):
         np.save(os.path.join(out, f"{kk}.npy"), res[kk])
-    sdf = res["sd_history"][-1] if len(res["sd_history"]) else np.zeros(n_out(variant))
+    sdf = res["sd_history"][-1] if len(res["sd_history"]) else np.zeros(k or n_out(variant))
     meta = dict(elapsed=res["elapsed"], n_iter=res["n_iter"],
                 k_eff=int((res["chi_best"].std(0) > 0.05).sum()), sd_final=[float(s) for s in sdf])
     with open(os.path.join(out, "meta.json"), "w") as f: json.dump(meta, f, indent=2)

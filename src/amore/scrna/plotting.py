@@ -14,19 +14,107 @@ Default DPI for saved figures is 600.
 """
 from __future__ import annotations
 import numpy as np
+import torch
 import matplotlib.pyplot as plt
-
+import scipy.sparse as sp
+from sklearn.neighbors import NearestNeighbors
+from sklearn.utils import check_random_state
+from umap.umap_ import simplicial_set_embedding, find_ab_params
 CURATED_COLOR = "#00AB8E"
 TF_COLOR = "#E8820C"
 DPI = 600
 
 
-def run_chi_umap(chi, *, n_neighbors=30, min_dist=0.3, random_state=0):
+def bhattacharyya(chi_a, chi_b):
+    """BC(i,j) = sum_k sqrt(chi_ik chi_jk). Shape (B, B)."""
+    return (chi_a.sqrt().unsqueeze(1) * chi_b.sqrt().unsqueeze(0)).sum(-1)
+
+def imap_sgd(chi, *, min_dist=0.3, n_epochs=500,
+              batch_size=1024, lr=1.0, random_state=0):
+    """IMAP via direct SGD on cross-entropy between BC(chi) and low-dim kernel.
+    No kNN graph, no bandwidth calibration."""
+    torch.manual_seed(random_state)
+    chi_t = torch.tensor(chi, dtype=torch.float32)
+    chi_t = (chi_t.clamp(min=0) / chi_t.sum(1, keepdim=True))
+    n = chi_t.shape[0]
+
+    a, b = find_ab_params(1.0, min_dist)
+    a, b = float(a), float(b)
+
+    # spectral init: project first 2 PCs of chi
+    _, _, V = torch.pca_lowrank(chi_t, q=2)
+    z = (chi_t @ V).detach().clone().requires_grad_(True)
+
+    opt = torch.optim.Adam([z], lr=lr)
+
+    for _ in range(n_epochs):
+        idx = torch.randperm(n)[:batch_size]
+        zi = z[idx]
+        chi_i = chi_t[idx]
+
+        w = bhattacharyya(chi_i, chi_i).clamp(0, 1)           # (B,B) high-dim
+        d2 = ((zi.unsqueeze(1) - zi.unsqueeze(0))**2).sum(-1) # (B,B) low-dim
+        v = 1.0 / (1.0 + a * d2**b)                           # UMAP kernel
+
+        eps = 1e-6
+        loss = -(w * (v + eps).log() + (1 - w) * (1 - v + eps).log()).mean()
+        opt.zero_grad(); loss.backward(); opt.step()
+
+    return z.detach().numpy()
+
+
+
+def chi_affinity_graph(chi, n_neighbors=30):
+    """Sparse symmetric affinity on the membership simplex.
+
+    Edge weight = Bhattacharyya coefficient BC(i,j) = sum_k sqrt(chi_ik chi_jk),
+    in [0,1], = 1 iff identical. No per-point bandwidth (no rho/sigma).
+
+    With R = sqrt(chi), every row has ||R_i||^2 = sum_k chi_ik = 1, so
+    ||R_i - R_j||^2 = 2 - 2 BC(i,j). Euclidean kNN on sqrt(chi) is therefore
+    exactly Hellinger kNN on chi, and BC = 1 - d^2/2 recovers the affinity.
+    """
+    chi = np.clip(np.asarray(chi, dtype=np.float64), 0.0, None)
+    chi = chi / chi.sum(1, keepdims=True)
+    R = np.sqrt(chi)
+
+    nn = NearestNeighbors(n_neighbors=n_neighbors, metric="euclidean").fit(R)
+    d, idx = nn.kneighbors(R)
+    bc = np.clip(1.0 - 0.5 * d**2, 0.0, 1.0)
+
+    n = chi.shape[0]
+    rows = np.repeat(np.arange(n), n_neighbors)
+    A = sp.csr_matrix((bc.ravel(), (rows, idx.ravel())), shape=(n, n))
+    G = A + A.T - A.multiply(A.T)          # UMAP's probabilistic t-conorm
+    G.eliminate_zeros()
+    return G
+
+
+def run_chi_umap(chi, *, n_neighbors=30, min_dist=0.3, n_epochs=500,
+                 random_state=0):
+    """CUMAP: UMAP's cross-entropy layout driven directly by the chi simplex
+    affinity, bypassing the kNN fuzzy-simplicial-set / bandwidth heuristic.
+    Returns (N, 2). Drop-in replacement for the old PCA-graph version."""
+    chi = np.asarray(chi, dtype=np.float64)
+    G = chi_affinity_graph(chi, n_neighbors=n_neighbors)
+    a, b = find_ab_params(1.0, min_dist)
+    emb, _ = simplicial_set_embedding(
+        data=chi, graph=G, n_components=2,
+        initial_alpha=1.0, a=a, b=b, gamma=1.0,
+        negative_sample_rate=5, n_epochs=n_epochs,
+        init="spectral", random_state=check_random_state(random_state),
+        metric="euclidean", metric_kwds={},
+        densmap=False, densmap_kwds={}, output_dens=False, verbose=False,
+    )
+    return np.asarray(emb)
+
+
+#def run_chi_umap(chi, *, n_neighbors=30, min_dist=0.3, random_state=0):
     """Run UMAP's cross-entropy layout on the chi memberships themselves
     (not the PCA graph). Returns (N, 2) embedding."""
-    import umap
-    return umap.UMAP(n_neighbors=n_neighbors, min_dist=min_dist,
-                     random_state=random_state).fit_transform(np.asarray(chi))
+ #   import umap
+ #   return umap.UMAP(n_neighbors=n_neighbors, min_dist=min_dist,
+ #                    random_state=random_state).fit_transform(np.asarray(chi))
 
 
 def scatter_categorical(ax, emb, labels, *, title="", s=4, cmap="tab10", legend=True):
