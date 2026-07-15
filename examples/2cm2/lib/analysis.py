@@ -109,6 +109,30 @@ def pathway_frames(chi, i, j, tau_edge=0.8):
     return onedge[o], s[o]
 
 
+def windowed_edges(chi, i, j, n_windows=20, tau_edge=0.8):
+    """Bin the real on-edge frames for edge (i,j) into `n_windows` contiguous, equal-
+    POPULATION windows along s_ij (not equal-width in s -- real dwell time isn't uniform in
+    s, so equal-width bins can end up empty near the edges while equal-population bins are
+    always usable). This is the partitioning step for an a-posteriori "string": pick one
+    representative real frame per window (e.g. its aligned-RMSD medoid) instead of running
+    any simulation.
+
+    Returns
+    -------
+    windows : list of length n_windows, each an np.ndarray of anchor indices (same indexing
+        as `pathway_frames`'s `order` -- NOT yet offset by NSTART)
+    window_s : np.ndarray, shape (n_windows,) -- mean s_ij of each window's frames
+    """
+    order, s = pathway_frames(chi, i, j, tau_edge=tau_edge)
+    n = len(order)
+    if n < n_windows:
+        raise ValueError(f"edge {i}-{j}: only {n} on-edge frames, need >= {n_windows}")
+    bounds = np.linspace(0, n, n_windows + 1).round().astype(int)
+    windows = [order[bounds[w]:bounds[w + 1]] for w in range(n_windows)]
+    window_s = np.array([s[bounds[w]:bounds[w + 1]].mean() for w in range(n_windows)])
+    return windows, window_s
+
+
 def export_pathway(order, nstart, pdb_file, dcd_file, out_dcd, out_pdb,
                    selection="protein"):
     """Write the ordered trajectory frames to `out_dcd` (+ topology `out_pdb`).

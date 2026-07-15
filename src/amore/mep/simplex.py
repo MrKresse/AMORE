@@ -32,7 +32,7 @@ import numpy as np
 import torch as pt
 
 from .core import reaction_path_minimum, transition_state, _chi_val
-from .constrained import build_chi_mep_projected
+from .constrained import build_chi_mep_projected, build_chi_string_independent
 
 
 # ---------------------------------------------------------------------------
@@ -60,6 +60,37 @@ class EdgeCV(pt.nn.Module):
     def forward(self, feats):
         chi = self.model(feats)
         return 0.5 * (chi[..., self.i:self.i + 1] - chi[..., self.j:self.j + 1] + 1.0)
+
+
+class LogitEdgeCV(pt.nn.Module):
+    """s = logit_i - logit_j, the PRE-softmax analogue of EdgeCV.
+
+    Softmax's Jacobian is diag(p) - p p^T, which vanishes as any p_i -> 1 -- exactly the
+    saturating-gradient regime chi sits in near any pure state or deep in a basin. The
+    raw trunk (logit) output has no such saturation, so this coordinate can stay well-
+    conditioned exactly where EdgeCV's ‖∇χ‖^2-based projection/retraction collapses.
+    Requires `model` to expose `.logits(feats)` (e.g. comfeat.NormalizedChiNet) -- unlike
+    chi, logits are unbounded, so this is not restricted to [0,1]; treat step_size/targets
+    in logit units, not chi units."""
+
+    def __init__(self, model, i, j):
+        super().__init__()
+        self.model, self.i, self.j = model, int(i), int(j)
+
+    def forward(self, feats):
+        logits = self.model.logits(feats)
+        return logits[..., self.i:self.i + 1] - logits[..., self.j:self.j + 1]
+
+
+class LogitFaceCV(pt.nn.Module):
+    """s = logit_i, the PRE-softmax analogue of FaceCV. See `LogitEdgeCV` for rationale."""
+
+    def __init__(self, model, i):
+        super().__init__()
+        self.model, self.i = model, int(i)
+
+    def forward(self, feats):
+        return self.model.logits(feats)[..., self.i:self.i + 1]
 
 
 class ActivityCV(pt.nn.Module):
@@ -142,7 +173,36 @@ def mfep_edge(sim, model, i, j, x0, featurizer, **kw):
     return build_chi_mep_projected(sim, EdgeCV(model, i, j), featurizer, x0, **kw)
 
 
+def mfep_logit_edge(sim, model, i, j, x0, featurizer, **kw):
+    """EDGE-view MFEP of i<->j along the PRE-softmax coordinate s = logit_i - logit_j.
+    See `LogitEdgeCV` -- avoids softmax's vanishing-Jacobian saturation near pure states."""
+    return build_chi_mep_projected(sim, LogitEdgeCV(model, i, j), featurizer, x0, **kw)
+
+
+# ---------------------------------------------------------------------------
+# The two entry points — decoupled "string" MFEP (independent per-level sampling)
+# ---------------------------------------------------------------------------
+
+def string_face(sim, model, i, seeds, cv_levels, featurizer, **kw):
+    """FACE-view decoupled/"string" MFEP along χ_i: independent per-level sampling,
+    each level seeded from its own configuration (ideally a real frame near that
+    level) instead of build_chi_mep_projected's sequential chain. See
+    `build_chi_string_independent`."""
+    return build_chi_string_independent(sim, FaceCV(model, i), featurizer, seeds,
+                                        cv_levels, **kw)
+
+
+def string_edge(sim, model, i, j, seeds, cv_levels, featurizer, **kw):
+    """EDGE-view decoupled/"string" MFEP of i<->j along s = ½(χ_i−χ_j+1): independent
+    per-level sampling, each level seeded from its own configuration (ideally a real
+    frame near that level) instead of build_chi_mep_projected's sequential chain. See
+    `build_chi_string_independent`."""
+    return build_chi_string_independent(sim, EdgeCV(model, i, j), featurizer, seeds,
+                                        cv_levels, **kw)
+
+
 __all__ = [
-    "FaceCV", "EdgeCV", "ActivityCV", "separatrix_frames",
-    "reaction_path_face", "reaction_path_edge", "mfep_face", "mfep_edge",
+    "FaceCV", "EdgeCV", "ActivityCV", "LogitFaceCV", "LogitEdgeCV", "separatrix_frames",
+    "reaction_path_face", "reaction_path_edge", "mfep_face", "mfep_edge", "mfep_logit_edge",
+    "string_face", "string_edge",
 ]

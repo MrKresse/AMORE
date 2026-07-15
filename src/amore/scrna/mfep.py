@@ -158,18 +158,20 @@ def smooth_2d(coords, n_out=100, smooth=None):
 
 
 def draw_path(ax, coords, *, color="k", lw=1.1, alpha=0.8, arrow=False, label=None,
-              smooth=False, halo=True):
+              smooth=False, halo=True, linestyle="solid"):
     """Overlay a path as a white-outlined line connecting its points, thin and slightly
     translucent so the χ-map underneath stays visible. `halo` draws the white outline for
     legibility on any background; `arrow` (off by default) adds an arrowhead at the χ=1
-    end; `smooth=True` spline-smooths the polyline first."""
+    end; `smooth=True` spline-smooths the polyline first; `linestyle` passes through to
+    `ax.plot` (e.g. ":" for a dotted trace, which reads more clearly against a dense
+    scatter than a solid line)."""
     import matplotlib.patheffects as pe
     coords = np.asarray(coords)
     if smooth:
         coords = smooth_2d(coords)
     eff = [pe.Stroke(linewidth=lw + 2.0, foreground="white"), pe.Normal()] if halo else None
     ax.plot(coords[:, 0], coords[:, 1], color=color, lw=lw, alpha=alpha, label=label,
-            zorder=5, path_effects=eff)
+            linestyle=linestyle, zorder=5, path_effects=eff)
     if arrow and len(coords) >= 2:
         ax.annotate("", xy=coords[-1], xytext=coords[-3 if len(coords) >= 3 else -2],
                     arrowprops=dict(arrowstyle="-|>", color=color, lw=lw, alpha=alpha), zorder=6)

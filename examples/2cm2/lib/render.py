@@ -53,17 +53,38 @@ def state_frames(chi, i, lo=0.9, hi=1.0, target=0.95, n_ensemble=12):
 
 # ── structure export (MDAnalysis) ────────────────────────────────────────────
 def _pack_ligand(keep, box):
-    """Shift the ligand into the same periodic image as the protein (minimum image of the
-    COM separation).  unwrap() only makes each fragment whole; if the ligand is a separate
-    fragment it can still sit a box-vector away, which after protein-CA alignment throws
-    phantom ligand copies across the render.  Call every frame BEFORE aligning."""
+    """Shift the ligand into whichever periodic image brings it CLOSEST TO THE PROTEIN
+    SURFACE (minimum atom-atom contact distance over the 27 candidate integer box-vector
+    shifts), not the image closest by protein/ligand CENTRE OF MASS. unwrap() only makes
+    each fragment whole; if the ligand is a separate fragment it can still sit a
+    box-vector away, which after protein-CA alignment throws phantom ligand copies across
+    the render. Call every frame BEFORE aligning.
+
+    COM-based packing (the original approach here) picks the wrong image whenever the
+    true binding pocket sits far from the protein's own centroid -- true for any
+    elongated/multi-domain protein, and confirmed on this system: one state's COM-based
+    packed distance was 25 A (would render as an empty white frame, no pocket residues
+    nearby) while the true nearest-contact distance at that exact frame is 5.2 A. Cost is
+    27x a single pairwise-distance computation (n_ligand_atoms x n_protein_atoms, ~40x4600
+    here) per call -- negligible next to PyMOL's own render time.
+    """
     prot = keep.select_atoms("protein")
     lg = keep.select_atoms(f"resname {LIGAND}")
     if lg.n_atoms == 0 or prot.n_atoms == 0:
         return
     b = np.asarray(box[:3], float)
-    shift = b * np.round((prot.center_of_mass() - lg.center_of_mass()) / b)
-    lg.positions = lg.positions + shift
+    prot_pos = prot.positions
+    lig_pos0 = lg.positions.copy()
+    best_shift, best_dist = None, np.inf
+    for ix in (-1, 0, 1):
+        for iy in (-1, 0, 1):
+            for iz in (-1, 0, 1):
+                shift = np.array([ix, iy, iz], float) * b
+                cand = lig_pos0 + shift
+                d = np.linalg.norm(cand[:, None, :] - prot_pos[None, :, :], axis=-1).min()
+                if d < best_dist:
+                    best_dist, best_shift = d, shift
+    lg.positions = lig_pos0 + best_shift
 
 
 def export_state_structures(chi, k, out_dir, nstart=None, lo=0.9, hi=1.0,
@@ -102,6 +123,9 @@ def export_state_structures(chi, k, out_dir, nstart=None, lo=0.9, hi=1.0,
 
         # reference = representative frame
         u.trajectory[int(nstart + rep)]
+        _pack_ligand(keep, u.dimensions)   # unwrap() alone can still leave the ligand a
+                                           # whole box-vector away (separate fragment) --
+                                           # see _pack_ligand's docstring / _extract_edge.
         ref = mda.Merge(keep)                              # static copy of the rep complex
         ref.atoms.positions = keep.positions
         ref_ca = ref.select_atoms(ca)
@@ -113,6 +137,7 @@ def export_state_structures(chi, k, out_dir, nstart=None, lo=0.9, hi=1.0,
         with mda.Writer(os.path.join(sd, "ensemble.dcd"), keep.n_atoms) as W:
             for a in frames:
                 u.trajectory[int(nstart + a)]
+                _pack_ligand(keep, u.dimensions)
                 align.alignto(keep, ref, select=f"resname {LIGAND}")
                 W.write(keep)
         ci = float(np.asarray(chi)[rep, i])
@@ -153,8 +178,10 @@ cmd.hide("everything", "conf")
 cmd.show("cartoon", "conf and polymer")           # semi-transparent grey context (chopped)
 cmd.color("grey70", "conf and polymer")
 cmd.color("grey80", "conf and polymer and chain B")
-# pocket: protein residues within 5 A of the ligand, thin grey sticks
-cmd.select("pocket", "byres (conf and polymer within 5 of (conf and " + lig + "))")
+# pocket: protein residues within 7 A of the ligand, thin grey sticks (7, not 5: a
+# genuinely-real ~5.2 A contact -- not a PBC artifact, see _pack_ligand -- was landing
+# just outside a 5 A cutoff, selecting nothing)
+cmd.select("pocket", "byres (conf and polymer within 7 of (conf and " + lig + "))")
 cmd.show("sticks", "pocket")
 cmd.set("stick_radius", 0.10, "pocket")
 cmd.color("grey60", "pocket and elem C")
@@ -177,8 +204,12 @@ cmd.set("stick_radius", 0.07, "ens and " + lig)
 cmd.hide("everything", "hydro")                    # declutter
 
 # ── camera: ligand centred and facing outward, protein behind ────────────────
-cmd.orient("conf and " + lig)
-cmd.zoom("conf and " + lig, buffer=4)
+# frame ligand + pocket together, not the ligand alone -- orienting/zooming on just the
+# ligand guarantees IT is in view but not the (already-selected) nearby protein context,
+# which for a looser pose can sit just outside a ligand-only zoom buffer despite being
+# genuinely close (see the "pocket" cutoff widening above, same root issue).
+cmd.orient("(conf and " + lig + ") or pocket")
+cmd.zoom("(conf and " + lig + ") or pocket", buffer=4)
 cmd.deselect()
 cmd.save(pse)                                       # editable PyMOL session
 cmd.ray(3840, 2880)                                 # 4K for zoom-in
@@ -319,7 +350,7 @@ cmd.set("all_states", 0, "path")
 cmd.hide("everything", "path")
 cmd.show("cartoon", "path and polymer")
 cmd.color("grey70", "path and polymer")
-cmd.select("pocket", "byres (path and polymer within 5 of (path and " + lig + "))")
+cmd.select("pocket", "byres (path and polymer within 7 of (path and " + lig + "))")
 cmd.show("sticks", "pocket")
 cmd.set("stick_radius", 0.10, "pocket")
 cmd.color("grey60", "pocket and elem C")
@@ -340,12 +371,81 @@ cmd.set("stick_radius", 0.06, "sweep and " + lig)
 
 cmd.hide("everything", "hydro")
 cmd.deselect()
-cmd.orient("sweep and " + lig)          # frame the full ligand range
-cmd.zoom("sweep and " + lig, buffer=4)
+# frame the full ligand sweep range AND the pocket together -- same reasoning as the
+# state-render camera fix: pocket alone can sit just outside a ligand-only zoom buffer.
+cmd.orient("(sweep and " + lig + ") or pocket")
+cmd.zoom("(sweep and " + lig + ") or pocket", buffer=4)
 cmd.save(pse)
 cmd.ray(3840, 2880)
 cmd.png(png, dpi=300)
 """
+
+
+def export_mfep_images(images_nm, out_dir, pdb_path=None, verbose=True):
+    """Write rep.pdb + path.dcd for a genuine MFEP/MEP image sequence (list/array of flat
+    (n_atoms*3,) coordinates in NM, amore.mep convention -- e.g. `mfep_face`'s "images"),
+    in the same protein+ligand, packed/aligned aesthetic as `_extract_edge`'s zeroth-order
+    pathway export, so it can be fed to `_render_edge_one`/`_EDGE_PML` unchanged.
+
+    Unlike `_extract_edge` (which pulls ordered frames out of the real trajectory DCD by
+    index), the images here are NEW coordinates that don't exist in any trajectory file --
+    each is written by setting positions directly on a Universe built from the topology PDB.
+    """
+    import MDAnalysis as mda
+    from MDAnalysis.analysis import align
+
+    pdb_path = pdb_path or data.pdb_path()
+    os.makedirs(out_dir, exist_ok=True)
+    u = mda.Universe(pdb_path)
+    keep = u.select_atoms(KEEP_SEL)
+    try:
+        keep.guess_bonds()
+    except Exception:
+        pass
+
+    def _set_frame(img_nm):
+        u.atoms.positions = np.asarray(img_nm, np.float64).reshape(-1, 3) * 10.0  # nm -> A
+
+    _set_frame(images_nm[0])
+    _pack_ligand(keep, u.dimensions)
+    ref = mda.Merge(keep); ref.atoms.positions = keep.positions
+    ref.atoms.write(os.path.join(out_dir, "rep.pdb"))
+    with mda.Writer(os.path.join(out_dir, "path.dcd"), keep.n_atoms) as W:
+        for img in images_nm:
+            _set_frame(img)
+            _pack_ligand(keep, u.dimensions)
+            align.alignto(keep, ref, select="protein and name CA")
+            W.write(keep)
+    if verbose:
+        print(f"  [render] wrote {len(images_nm)}-frame MFEP path -> {out_dir}", flush=True)
+    return dict(dir=out_dir, n=len(images_nm))
+
+
+def build_mfep_edge_pse(images_nm, out_dir, edge_label, pdb_path=None, force=False,
+                        verbose=True):
+    """One `.pse` (+ preview PNG) for a genuine MFEP image sequence, same aesthetic as
+    `build_edge_pses`'s zeroth-order edge sessions (playable multi-state pathway, ligand
+    transition sweep halo, 7 A pocket sticks) -- reuses `_EDGE_PML` unchanged.
+
+    `edge_label` names the output files (e.g. "state0_pilot", "edge_0-1"); `out_dir` should be
+    the notebook's OWN directory (passed explicitly -- see the postmortem's own_dir gotcha,
+    this function's default has no implicit notebook-relative fallback)."""
+    out_dir = os.path.abspath(out_dir)
+    ed = os.path.join(out_dir, edge_label)
+    pse = os.path.join(out_dir, f"{edge_label}.pse")
+    png = os.path.join(out_dir, f"{edge_label}.png")
+    if force or not os.path.exists(os.path.join(ed, "path.dcd")):
+        export_mfep_images(images_nm, ed, pdb_path=pdb_path, verbose=verbose)
+    if not force and os.path.exists(pse):
+        if verbose:
+            print(f"  [render] {edge_label}.pse cached", flush=True)
+        return dict(dir=ed, pse=pse, png=png)
+    ok, log = _render_edge_one(ed, pse, png)
+    if verbose:
+        print(f"  {edge_label} -> {'OK' if ok else 'FAIL'} {os.path.basename(pse)}", flush=True)
+        if not ok:
+            print(log, flush=True)
+    return dict(dir=ed, pse=pse if ok else None, png=png if ok else None)
 
 
 def _render_edge_one(ed, pse, png):

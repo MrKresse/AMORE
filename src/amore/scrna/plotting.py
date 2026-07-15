@@ -117,7 +117,8 @@ def run_chi_umap(chi, *, n_neighbors=30, min_dist=0.3, n_epochs=500,
  #                    random_state=random_state).fit_transform(np.asarray(chi))
 
 
-def scatter_categorical(ax, emb, labels, *, title="", s=4, cmap="tab10", legend=True):
+def scatter_categorical(ax, emb, labels, *, title="", s=4, cmap="tab10", legend=True,
+                        xlabel=None, ylabel=None):
     labels = np.asarray(labels)
     cats = np.unique(labels)
     cm = plt.get_cmap(cmap, len(cats))
@@ -128,15 +129,26 @@ def scatter_categorical(ax, emb, labels, *, title="", s=4, cmap="tab10", legend=
         ax.legend(markerscale=3, fontsize=7, loc="center left",
                   bbox_to_anchor=(1, 0.5), frameon=False)
     ax.set_title(title); ax.set_xticks([]); ax.set_yticks([])
+    if xlabel:
+        ax.set_xlabel(xlabel)
+    if ylabel:
+        ax.set_ylabel(ylabel)
     return ax
 
 
-def scatter_chi(ax, emb, values, *, title="", s=5, cmap="inferno", vmin=0.0, vmax=1.0):
+def scatter_chi(ax, emb, values, *, title="", s=5, cmap="inferno", vmin=0.0, vmax=1.0,
+                cbar_label="χ  (0 = progenitor → 1 = differentiated)",
+                xlabel=None, ylabel=None):
     sc = ax.scatter(emb[:, 0], emb[:, 1], s=s, c=values, cmap=cmap,
                     vmin=vmin, vmax=vmax, linewidths=0)
     cb = plt.colorbar(sc, ax=ax, shrink=0.7)
-    cb.set_label("χ  (0 = progenitor → 1 = differentiated)", fontsize=7)
+    if cbar_label:
+        cb.set_label(cbar_label, fontsize=7)
     ax.set_title(title); ax.set_xticks([]); ax.set_yticks([])
+    if xlabel:
+        ax.set_xlabel(xlabel)
+    if ylabel:
+        ax.set_ylabel(ylabel)
     return ax
 
 
